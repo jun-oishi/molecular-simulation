@@ -1,6 +1,5 @@
 #include <bits/stdc++.h>
-#include <eigen3/Eigen/Dense>
-#include "NVT_MC_core.cpp"
+#include "NVT_MC_core.hpp"
 
 int main() {
     int M, n_steps;
