@@ -1,9 +1,9 @@
-CXX = g++
 SRCDIR = src
 OBJDIR = obj
 BINDIR = bin
 INCLUDEDIR = ./include
-CXXFLAGS = -I $(INCLUDEDIR)
+
+include local.mk
 
 main.out : $(SRCDIR)/main.cpp $(OBJDIR)/NVT_MC_core.o
 	$(CXX) $(CXXFLAGS) -o $(BINDIR)$@ $?

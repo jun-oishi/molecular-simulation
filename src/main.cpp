@@ -1,4 +1,5 @@
-#include <bits/stdc++.h>
+#include <iostream>
+#include <fstream>
 #include "NVT_MC_core.hpp"
 
 int main() {

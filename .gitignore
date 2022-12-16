@@ -2,3 +2,7 @@ bin/*
 !bin/.gitkeep
 obj/*
 !obj/.gitkeep
+include/*
+!include/*.hpp
+!include/*.gitkeep
+local.mk
