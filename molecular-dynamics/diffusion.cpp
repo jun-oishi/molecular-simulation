@@ -3,81 +3,28 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <random>
+
+#include "vec3d.h"
+
 using namespace std;
 
-const int NA = 20; // Aの粒子数
-const int NB = 20; // Bの粒子数
-const double k = 10; // Bの質量/Aの質量
+const int NA = 30; // Aの粒子数
+const int NB = 30; // Bの粒子数
+const double k = 4; // Bの質量/Aの質量
 const double T = 5; // 無次元温度
 const double dt = 0.001; // 時間ステップ幅
-const double n_dense = 0.1; // 粒子の数密度
+const double n_dense = 0.3; // 粒子の数密度
 const double L = cbrt((NA+NB)/n_dense);  // シミュレーション領域の1辺
 
 const int n_steps = 10000;
 const int save_interval = 10;
+int current_step;
 
-struct vec3d {
-  double x, y, z;
+const string outdir = "out/";
 
-  vec3d() {};
-
-  vec3d(double x, double y, double z) {
-    this->x = x;
-    this->y = y;
-    this->z = z;
-  }
-
-  vec3d(const vec3d &other) {
-    x = other.x;
-    y = other.y;
-    z = other.z;
-  }
-
-  vec3d& operator=(const vec3d &other) {
-    x = other.x;
-    y = other.y;
-    z = other.z;
-    return *this;
-  }
-
-  vec3d& operator+=(const vec3d &other) {
-    x += other.x;
-    y += other.y;
-    z += other.z;
-    return *this;
-  }
-
-  vec3d& operator-=(const vec3d &other) {
-    x -= other.x;
-    y -= other.y;
-    z -= other.z;
-    return *this;
-  }
-
-  vec3d& operator*=(double a) {
-    x *= a;
-    y *= a;
-    z *= a;
-    return *this;
-  }
-
-  vec3d& operator/=(double a) {
-    x /= a;
-    y /= a;
-    z /= a;
-    return *this;
-  }
-
-  double norm() {
-    return sqrt(x*x + y*y + z*z);
-  }
-};
-
-vec3d operator+(const vec3d &a, const vec3d &b) {return vec3d(a) += b;}
-vec3d operator-(const vec3d &a, const vec3d &b) {return vec3d(a) -= b;}
-vec3d operator*(const vec3d &a, double b) {return vec3d(a) *= b;}
-vec3d operator*(double a, const vec3d &b) {return vec3d(b) *= a;}
-vec3d operator/(const vec3d &a, double b) {return vec3d(a) /= b;}
+// const uint32_t SEED = 10;
+const uint32_t SEED = time(NULL);
 
 struct Particle {
   char type;
@@ -108,10 +55,10 @@ void move(Particle *particles);
 void write(Particle *particles, double time, string outfile);
 
 int main() {
-  srand(time(NULL));
-  cout << "RAND_MAX = " << RAND_MAX << endl;
-
-  string outfile = "diffusion1.xyz";
+  string outfile = "diffusion.xyz";
+  // cout << "outfile: ";
+  // cin >> outfile;
+  outfile = outdir + outfile;
 
   Particle particles[NA+NB];
   for (int i=0; i<NA; i++) {
@@ -125,38 +72,41 @@ int main() {
   ofstream file(outfile, ios::out);
   file.close();
 
-  double t = 0;
-  for (int i=0; i<n_steps; i++) {
-    initialize(particles);
+  write(particles, 0, outfile);
+
+  double t = dt;
+  for (current_step=1; current_step<=n_steps; current_step++) {
     compute_force(particles);
     move(particles);
-    if (i % save_interval == 0) {
+    if (current_step % save_interval == 0) {
       write(particles, t, outfile);
     }
     t += dt;
   }
 }
 
-double frand(double min, double max) {
-  double ret = min + (max-min)*rand()/RAND_MAX;
-  if (isnan(ret)) {
-    ret = frand(min, max);
-  }
-  cout << ret << " ";
-  return ret;
+double drand(double min, double max) {
+  static minstd_rand0 engine(SEED);
+  static const uint32_t rand_max = engine.max();
+  return min + (max - min) * ((double)engine() / rand_max);
 }
 
 // T, m は無次元化された値
 double maxwell(double T, double m) {
-  return sqrt(-2*T*log(frand(0,1))/m) * cos(2*M_PI*frand(0,1));
+  double ret = sqrt(-2*T*log(drand(1e-50,1))/m) * cos(2*M_PI*drand(0,1));
+  if (isnan(ret)) {
+    cout << "nan" << endl;
+    exit(1);
+  }
+  return ret;
 }
 
 void initialize(Particle *particles) {
   // 初期位置の設定
   for (int i=0; i<NA+NB; i++) {
-    particles[i].r.x = frand(0, L);
-    particles[i].r.y = frand(0, L);
-    particles[i].r.z = frand(0, L);
+    particles[i].r.x = drand(0, L);
+    particles[i].r.y = drand(0, L);
+    particles[i].r.z = drand(0, L);
 
     // 近すぎる場合は置き直す
     bool overlap = false;
@@ -185,9 +135,11 @@ void initialize(Particle *particles) {
     vec3d mom = particles[i].v * 1;
     total_mom_A += mom;
   }
-  vec3d avg_mom_A = total_mom_A / NA;
-  for (int i=0; i<NA; i++) {
-    particles[i].v -= avg_mom_A / 1;
+  if (total_mom_A.norm() > 1e-10) {
+    vec3d avg_mom_A = total_mom_A / NA;
+    for (int i=0; i<NA; i++) {
+      particles[i].v -= avg_mom_A / 1;
+    }
   }
 
   // 次に重いB
@@ -202,23 +154,31 @@ void initialize(Particle *particles) {
     vec3d mom = particles[i].v * k;
     total_mom_B += mom;
   }
-  vec3d avg_mom_B = total_mom_B / NA;
-  for (int i = 0; i < NA; i++) {
-    particles[i].v -= avg_mom_B / k;
+  if (total_mom_B.norm() > 1e-10) {
+    vec3d avg_mom_B = total_mom_B / NB;
+    for (int i = NA; i < NA+NB; i++) {
+      particles[i].v -= avg_mom_B / k;
+    }
   }
-
 }
 
 void compute_force(Particle *particles) {
+  // TODO 周期的境界条件
   // TODO 計算対象をVerlet neighborで絞りたい
-  // TODO 周期的境界条件...
-  for (int i=0; i<NA+NB; i++) {
+  for (int i=0; i<NA+NB-1; i++) {
     for (int j=i+1; j<NA+NB; j++) {
-      vec3d fij = particles[i].lj_force(particles[j]);
-      particles[i].f = fij;
-      vec3d zero = {0, 0, 0};
-      vec3d fji = zero - fij;
-      particles[j].f = fji;
+      vec3d f = particles[i].lj_force(particles[j]);
+      if (isnan(f.x) || isnan(f.y) || isnan(f.z)) {
+        cout << "i:" << i << " j:" << j << endl;
+        cout << "this : " << particles[i].r.x << " " << particles[i].r.y << " " << particles[i].r.z
+             << endl;
+        cout << "other: " << particles[j].r.x << " " << particles[j].r.y << " "
+             << particles[j].r.z << endl;
+        cout << "f: " << f.x << " " << f.y << " " << f.z << endl;
+        exit(1);
+      }
+      particles[i].f = f;
+      particles[j].f = -f;
     }
   }
 }
@@ -230,19 +190,25 @@ void move(Particle *particles) {
     particles[i].v += particles[i].f * (dt / m);
 
     if (particles[i].r.x < 0) {
-      particles[i].r.x += L;
+      particles[i].r.x = -particles[i].r.x;
+      particles[i].v.x = -particles[i].v.x;
     } else if (particles[i].r.x > L) {
-      particles[i].r.x -= L;
+      particles[i].r.x = 2*L-particles[i].r.x;
+      particles[i].v.x = -particles[i].v.x;
     }
     if (particles[i].r.y < 0) {
-      particles[i].r.y += L;
+      particles[i].r.y = -particles[i].r.y;
+      particles[i].v.y = -particles[i].v.y;
     } else if (particles[i].r.y > L) {
-      particles[i].r.y -= L;
+      particles[i].r.y = 2*L-particles[i].r.y;
+      particles[i].v.y = -particles[i].v.y;
     }
     if (particles[i].r.z < 0) {
-      particles[i].r.z += L;
+      particles[i].r.z = -particles[i].r.z;
+      particles[i].v.z = -particles[i].v.z;
     } else if (particles[i].r.z > L) {
-      particles[i].r.z -= L;
+      particles[i].r.z = 2*L-particles[i].r.z;
+      particles[i].v.z = -particles[i].v.z;
     }
   }
 }
@@ -251,18 +217,22 @@ void write(Particle *particles, double time, string outfile) {
   ofstream ofs(outfile, ios::app);
   ofs << NA+NB << endl;
   ofs << "Lattice \"" << L << " 0 0 0 " << L << " 0 0 0 " << L << "\"";
-  ofs << " Properties=id:I:1:element:S:1:radius:R:1:pos:R:3";
+  ofs << " Properties=id:I:1:element:S:1:radius:R:1:pos:R:3:velo:R:3";
   ofs << " Time=" << time;
   ofs << endl;
 
   for (int i = 0; i < NA + NB; i++) {
-    double r = (particles[i].type == 'A') ? 0.2 : 0.02*cbrt(k);
+    double r = (particles[i].type == 'A') ? 0.2 : 0.2*cbrt(k);
     ofs << i << " ";
     ofs << particles[i].type << " ";
     ofs << r << " ";
     ofs << particles[i].r.x << " ";
     ofs << particles[i].r.y << " ";
-    ofs << particles[i].r.z << endl;
+    ofs << particles[i].r.z << " ";
+    ofs << particles[i].v.x << " ";
+    ofs << particles[i].v.y << " ";
+    ofs << particles[i].v.z << " ";
+    ofs << endl;
   }
   ofs.close();
 }
